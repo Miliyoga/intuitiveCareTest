@@ -1,0 +1,280 @@
+  # Configuração e Execução do Projeto
+
+  Este projeto é uma aplicação **FastAPI em Python**, executada em ambiente **Docker** e automatizada através de um **Makefile**.  
+  Ao subir o projeto, todo o sistema é iniciado e o processo de **povoamento de dados** é executado automaticamente.
+
+  ## Pré-requisitos
+
+  Antes de executar o projeto, certifique-se de que o ambiente possui:
+
+  - Docker instalado de acordo com o sistema operacional  
+    - Docker Desktop (Windows / macOS)  
+    - Docker Engine + Docker Compose (Linux)
+  - Make disponível no sistema
+
+  ## Executando o Projeto
+
+  No diretório raiz do projeto, execute o comando:
+
+  ```bash
+  make up
+  ```
+
+  ##Gerar apenas os arquivos consolidados.
+
+  Para gerar apenas os arquivos consolidados sem iniciar o servidor FastAPI, utilize:
+
+  ```bash
+  make run
+  ```
+  
+  # Projeto ANS Pipeline – Coleta, Consolidação, Enriquecimento e Agregação de Dados
+
+  Este projeto implementa um pipeline completo de ingestão e processamento de dados públicos da Agência Nacional de Saúde Suplementar (ANS).
+
+  Objetivos:
+  - Baixar automaticamente os arquivos de Demonstrações Contábeis dos últimos trimestres disponíveis.
+  - Consolidar os dados financeiros trimestrais.
+  - Enriquecer os registros com informações cadastrais das operadoras ativas.
+  - Agregar os valores por operadora e UF, calculando métricas estatísticas.
+  - Disponibilizar os resultados em arquivos CSV prontos para análise.
+
+  O pipeline pode ser executado manualmente por linha de comando ou automaticamente no startup do servidor FastAPI.
+
+  ## Visão Geral do Pipeline
+
+  O fluxo completo é composto por quatro etapas principais:
+
+  1) Sync (Download)
+  - Acessa o portal de dados abertos da ANS.
+  - Navega pela estrutura de diretórios por ano e trimestre.
+  - Seleciona os últimos N trimestres disponíveis (por padrão, 3).
+  - Faz o download dos arquivos ZIP.
+  - Salva em: data/raw/ans/demonstracoes_contabeis/YYYY/TT/
+
+  2) Consolidação
+  - Abre cada ZIP.
+  - Identifica arquivos CSV internos.
+  - Detecta automaticamente separador e encoding.
+  - Lê os dados contábeis.
+  - Normaliza colunas.
+  - Converte valores monetários.
+  - Gera um CSV único contendo:
+    - RegistroANS
+    - Ano
+    - Trimestre
+    - Despesas
+  - Saída:
+    - data/processed/consolidated.csv
+    
+    ### Observação sobre o formato do CSV consolidado (Teste 1.3)
+
+  O enunciado do teste solicita que o CSV consolidado contenha as colunas
+  CNPJ e RazaoSocial já nesta etapa.
+
+  Neste projeto, optei por realizar a consolidação inicial utilizando
+  RegistroANS como chave principal, pelos seguintes motivos:
+
+  - Nem todos os arquivos de demonstrações contábeis possuem CNPJ ou Razão Social
+    de forma consistente.
+  - O RegistroANS é a chave oficial utilizada pela ANS para identificar
+    operadoras de planos de saúde.
+  - A etapa de enriquecimento posterior permite associar os dados cadastrais
+    mais atualizados (CNPJ, RazaoSocial, UF, Modalidade) ao consolidado financeiro.
+
+  Após a etapa de enriquecimento, o dataset final passa a conter todas as
+  colunas exigidas pelo teste, mantendo a rastreabilidade e a qualidade dos dados.
+
+
+
+
+  3) Enriquecimento
+  - Baixa ou utiliza o cadastro de operadoras ativas da ANS.
+  - Lê o arquivo cadastral.
+  - Realiza join usando RegistroANS (normalizado).
+  - Adiciona colunas ao consolidado:
+    - CNPJ
+    - RazaoSocial
+    - Modalidade
+    - UF
+  - Produz arquivos auxiliares para auditoria:
+    - data/processed/unmatched_registro_ans.csv
+    - data/processed/registry_conflicts.csv
+  - Saída principal:
+    - data/processed/enriched.csv
+
+  ## Validação de Dados (Teste 2.1)
+
+  Após a etapa de enriquecimento, foram aplicadas validações nos dados
+  consolidados e cadastrais, conforme solicitado no teste.
+
+  Validação de CNPJ:
+  - O CNPJ é validado quanto ao formato e dígitos verificadores.
+  - Registros com CNPJ inválido não seram descartados automaticamente.
+  - Esses registros permanecem no dataset final com indicação para auditoria,
+    permitindo análise posterior sem perda de informação.
+
+  Valores de despesas:
+  - Apenas valores numéricos positivos são considerados para as agregações.
+  - Valores zerados ou negativos são desconsiderados nas métricas estatísticas,
+    evitando distorções nos resultados.
+
+  Razão Social:
+  - Registros sem Razão Social preenchida são mantidos apenas para auditoria
+  - Esses registros não participam das agregações por operadora.
+
+  Trade-off técnico:
+  - Optou-se por não descartar automaticamente registros inválidos, priorizando
+    rastreabilidade e transparência dos dados.
+  - A alternativa seria a exclusão direta, que simplifica o dataset, porém pode
+    ocultar problemas de origem nos dados públicos.
+
+  4) Agregação
+  - Agrupa os dados por RazaoSocial e UF.
+  - Calcula:
+    - TotalDespesas (soma)
+    - MediaTrimestral (média por trimestre)
+    - DesvioPadraoTrimestral (variabilidade)
+    - QtdeTrimestres (quantidade de trimestres analisados)
+  - Saída:
+    - data/aggregated/despesas_por_operadora_uf.csv
+
+  ## Estrutura de Pastas
+
+  app/
+    clients/
+      ans_client.py
+      ans_registry_client.py
+    services/
+      ans_sync_service.py
+      ans_consolidation_service.py
+      ans_enrichment_service.py
+      ans_aggregation_service.py
+    jobs/
+      full_pipeline_job.py
+    main.py
+
+  data/
+    raw/
+      ans/
+        demonstracoes_contabeis/
+        operadoras_ativas/
+    processed/
+      consolidated.csv
+      enriched.csv
+      unmatched_registro_ans.csv
+      registry_conflicts.csv
+    aggregated/
+      despesas_por_operadora_uf.csv
+
+  ## Como Executar
+
+  Recomendação: ative o ambiente virtual antes de executar.
+
+  Execução manual (pipeline completo):
+  python -c "from app.jobs.full_pipeline_job import run_full_pipeline; run_full_pipeline()"
+
+  Execução via API (FastAPI/Uvicorn):
+  uvicorn app.main:app --reload --port 8000
+
+  Ao iniciar a API, o pipeline é executado automaticamente (caso esteja configurado no startup). Os logs indicam cada etapa do processo.
+
+  ## Estratégias Técnicas Utilizadas
+
+  Leitura resiliente de CSV
+  - Os arquivos da ANS podem variar entre anos e trimestres.
+  - Para lidar com isso, a leitura tenta múltiplas combinações:
+    - separadores: ; , e tab
+    - encodings: utf-8, latin-1 e cp1252
+  - Somente após falha total a execução é interrompida.
+
+  Join com Cadastro (Enriquecimento)
+  - O join é feito por RegistroANS.
+  - Registros no consolidado sem match no cadastro:
+    - permanecem no enriched.csv com colunas cadastrais vazias
+    - são exportados também em unmatched_registro_ans.csv para auditoria
+  - Duplicidades no cadastro com divergências (mesmo RegistroANS com dados diferentes):
+    - são exportadas em registry_conflicts.csv
+  - Deduplicação adotada (regra determinística):
+    - prioriza linha com UF preenchida
+    - depois com CNPJ preenchido
+    - depois mantém a primeira ocorrência
+
+  Agregação e Estatísticas
+  - Agrupamento por RazaoSocial e UF.
+  - As métricas calculadas permitem:
+    - comparar volume total de despesas
+    - observar média por trimestre
+    - identificar alta variabilidade usando o desvio padrão
+
+  Trade-off técnico: estratégia de processamento
+  - Escolha: pandas em memória.
+  - Justificativa: para os últimos 3 trimestres o volume é pequeno/médio e o processamento em memória é simples e rápido.
+  - Alternativas para volumes maiores:
+    - leitura em chunks (streaming)
+    - engine analítica (DuckDB/SQLite/Postgres) com join/agregação via SQL
+    - polars para melhor performance e menor consumo de memória
+
+  Trade-off técnico: ordenação
+  - Ordenação final por TotalDespesas desc.
+  - Justificativa: após agregação o dataset fica relativamente pequeno (um registro por operadora/UF), então ordenar em memória é barato.
+  - Alternativas para volume muito grande:
+    - delegar ORDER BY para banco/engine analítica
+    - external sort em disco
+
+  ## Artefatos Gerados
+
+  Durante a execução, o pipeline gera/atualiza:
+
+  - ZIPs baixados:
+    - data/raw/ans/demonstracoes_contabeis/YYYY/TT/*.zip
+
+  - Consolidado:
+    - data/processed/consolidated.csv
+
+  - Enriquecido e auditorias:
+    - data/processed/enriched.csv
+    - data/processed/unmatched_registro_ans.csv
+    - data/processed/registry_conflicts.csv
+
+  - Agregado final:
+    - data/aggregated/despesas_por_operadora_uf.csv
+
+  ## Resultado Final
+
+  O principal arquivo para análise é:
+  data/aggregated/despesas_por_operadora_uf.csv
+
+  Ele contém as métricas consolidadas por operadora e UF, prontas para consumo em análises e relatórios.
+
+
+
+  ## Teste 3 – Banco de Dados (PostgreSQL)
+
+  O Teste 3 foi implementado parcialmente, com foco na modelagem relacional e definição do schema de dados.
+
+  ### Modelagem e DDL
+  Foi criado um schema em PostgreSQL (arquivo `sql/postgres/01_schema.sql`) contendo as seguintes tabelas:
+
+  - `ans.operadoras_cadop`: dados cadastrais das operadoras (CADOP)
+  - `ans.consolidated_validated`: despesas consolidadas por operadora e trimestre
+  - `ans.despesas_agregadas`: métricas agregadas por operadora e UF
+
+  A modelagem adotada é parcialmente normalizada, separando dados cadastrais, dados financeiros consolidados e dados agregados, o que reduz redundância e facilita análises futuras.
+
+  ### Trade-offs técnicos
+  - **Normalização**: optou-se por tabelas separadas em vez de uma tabela desnormalizada, priorizando clareza, integridade e flexibilidade analítica.
+
+  - **Valores monetários**: foi utilizado o tipo NUMERIC(20,2), garantindo precisão e evitando problemas de arredondamento comuns em FLOAT.
+
+  - **Datas e períodos**: ano e trimestre foram armazenados como tipos numéricos, com restrições de integridade para evitar valores inválidos.
+
+  As etapas de importação dos CSVs e o desenvolvimento das queries analíticas foram consideradas extensões naturais do schema e não fazem parte desta entrega, tendo sido priorizada a construção do pipeline de dados e da modelagem relacional.
+
+  ## Próximos Passos Possíveis
+
+  - Expor endpoints REST para consultar os resultados (enriched e aggregated).
+  - Persistir resultados em um banco para consultas mais rápidas.
+  - Versionar datasets por data de execução.
+  - Agendar execuções automáticas (cron).
+  - Criar dashboards em BI.

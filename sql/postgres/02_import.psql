@@ -1,0 +1,15 @@
+\set ON_ERROR_STOP on
+
+\echo '== Import: ans.operadoras_cadop =='
+TRUNCATE TABLE ans.operadoras_cadop;
+\copy ans.operadoras_cadop (registro_operadora, cnpj, razao_social, nome_fantasia, modalidade, logradouro, numero, complemento, bairro, cidade, uf, cep, ddd, telefone, fax, endereco_eletronico, representante, cargo_representante, regiao_de_comercializacao, data_registro_ans) FROM '/app/data/raw/ans/operadoras_ativas/Relatorio_cadop.csv' WITH (FORMAT csv, HEADER true, DELIMITER ';', QUOTE '"', ESCAPE '"', ENCODING 'UTF8');
+
+\echo '== Import: ans.consolidated_validated =='
+TRUNCATE TABLE ans.consolidated_validated;
+\copy ans.consolidated_validated (cnpj, razao_social, ano, trimestre, valor_despesas) FROM '/app/data/processed/consolidated_validated.csv' WITH (FORMAT csv, HEADER true, DELIMITER ',', QUOTE '"', ESCAPE '"', ENCODING 'UTF8');
+
+\echo '== Import: ans.despesas_agregadas =='
+TRUNCATE TABLE ans.despesas_agregadas;
+\copy ans.despesas_agregadas (razao_social, uf, total_despesas, media_trimestral, desvio_padrao_trimestral, qtde_trimestres) FROM '/app/data/aggregated/despesas_agregadas.csv' WITH (FORMAT csv, HEADER true, DELIMITER ',', QUOTE '"', ESCAPE '"', ENCODING 'UTF8');
+
+\echo '== Import OK =='

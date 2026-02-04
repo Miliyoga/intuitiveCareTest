@@ -1,0 +1,50 @@
+services:
+  db:
+    image: postgres:15
+    container_name: ans-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ans
+    ports:
+      - "5432:5432"
+    volumes:
+      - ans_pgdata:/var/lib/postgresql/data
+
+  loader:
+    build: .
+    container_name: ans-loader
+    depends_on:
+      - db
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: ans
+      # também usado pela API (SQLAlchemy)
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/ans
+      # evita rodar pipeline dentro da API (somente no loader)
+      RUN_PIPELINE_ON_STARTUP: "0"
+      STATS_CACHE_TTL_SECONDS: "300"
+    volumes:
+      # Persistir os CSVs gerados pelo pipeline no host (e reutilizar em re-runs)
+      - ./data:/app/data
+    command: ["/app/docker/load_db.sh"]
+
+  api:
+    build: .
+    container_name: ans-api
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/ans
+      RUN_PIPELINE_ON_STARTUP: "0"
+      STATS_CACHE_TTL_SECONDS: "300"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+
+volumes:
+  ans_pgdata:
